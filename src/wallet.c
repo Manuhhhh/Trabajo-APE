@@ -21,14 +21,8 @@ struct Wallet {
 /* Altura: devuelve la altura de un nodo, o 0 si el nodo es NULL. */
 int height(const Node *n);
 
-/* Máximo: devuelve el mayor de dos enteros. */
-int max_int(int a, int b);
-
-/* Actualizar altura: recalcula la altura del nodo a partir de la de sus hijos. */
+/* Actualizar altura: recalcula la altura del nodo a partir de la de sus hijos (1 + la mayor). */
 void update_height(Node *n);
-
-/* Factor de balance: diferencia de altura entre el subárbol izquierdo y el derecho. */
-int balance_factor(const Node *n);
 
 /* Rotar a la derecha: reequilibra el subárbol girando hacia la derecha y devuelve la nueva raíz. */
 Node *rotate_right(Node *y);
@@ -36,7 +30,7 @@ Node *rotate_right(Node *y);
 /* Rotar a la izquierda: reequilibra el subárbol girando hacia la izquierda y devuelve la nueva raíz. */
 Node *rotate_left(Node *x);
 
-/* Rebalancear: recalcula la altura del nodo y lo rebalancea si su factor está fuera de [-1, 1]. Devuelve la nueva raíz del subárbol. */
+/* Rebalancear: recalcula la altura del nodo y lo rebalancea si la diferencia de alturas entre sus hijos (izq - der) sale de [-1, 1]. Devuelve la nueva raíz del subárbol. */
 Node *rebalance(Node *n);
 
 /* ---------- Recursive tree operations ---------- */
@@ -95,16 +89,11 @@ int height(const Node *n) {
     return n ? n->height : 0;
 }
 
-int max_int(int a, int b) {
-    return a > b ? a : b;
-}
-
 void update_height(Node *n) {
-    n->height = 1 + max_int(height(n->left), height(n->right));
-}
+    int l = height(n->left);
+    int r = height(n->right);
 
-int balance_factor(const Node *n) {
-    return n ? height(n->left) - height(n->right) : 0;
+    n->height = 1 + (l > r ? l : r);
 }
 
 Node *rotate_right(Node *y) {
@@ -131,14 +120,14 @@ Node *rebalance(Node *n) {
     int balance;
 
     update_height(n);
-    balance = balance_factor(n);
+    balance = height(n->left) - height(n->right);
     if (balance > 1) {
-        if (balance_factor(n->left) < 0) {
+        if (height(n->left->left) < height(n->left->right)) {
             n->left = rotate_left(n->left);
         }
         n = rotate_right(n);
     } else if (balance < -1) {
-        if (balance_factor(n->right) > 0) {
+        if (height(n->right->left) > height(n->right->right)) {
             n->right = rotate_right(n->right);
         }
         n = rotate_left(n);
