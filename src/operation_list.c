@@ -25,9 +25,9 @@ size_t operation_list_count(const OperationList *list);
 const Operation *operation_list_get(const OperationList *list, size_t pos);
 
 OperationList *operation_list_create(void) {
-    OperationList *list = malloc(sizeof *list);
+    OperationList *list = malloc(sizeof(OperationList));
 
-    list->data = malloc(INITIAL_CAPACITY * sizeof *list->data);
+    list->data = malloc(INITIAL_CAPACITY * sizeof(Operation));
     list->count = 0;
     list->capacity = INITIAL_CAPACITY;
     return list;
@@ -40,8 +40,8 @@ void operation_list_destroy(OperationList *list) {
 
 void operation_list_append(OperationList *list, Operation op) {
     if (list->count == list->capacity) {
-        list->capacity *= 2;
-        list->data = realloc(list->data, list->capacity * sizeof *list->data);
+        list->capacity = list->capacity * 2;
+        list->data = realloc(list->data, list->capacity * sizeof(Operation));
     }
     list->data[list->count] = op;
     list->count++;
@@ -52,5 +52,10 @@ size_t operation_list_count(const OperationList *list) {
 }
 
 const Operation *operation_list_get(const OperationList *list, size_t pos) {
-    return pos < list->count ? &list->data[pos] : NULL;
+    const Operation *result = NULL;
+
+    if (pos < list->count) {
+        result = &list->data[pos];
+    }
+    return result;
 }

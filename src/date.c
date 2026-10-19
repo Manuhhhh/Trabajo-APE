@@ -17,7 +17,7 @@ int date_compare(Date d, Date other);
 Date date_today(void);
 
 int days_in_month(int month, int year) {
-    const int days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    int days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     int leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
     int result = days[month - 1];
 
@@ -40,13 +40,23 @@ long key(Date d) {
 int date_compare(Date d, Date other) {
     long a = key(d);
     long b = key(other);
+    int result = 0;
 
-    return (a > b) - (a < b);
+    if (a < b) {
+        result = -1;
+    } else if (a > b) {
+        result = 1;
+    }
+    return result;
 }
 
 Date date_today(void) {
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
+    Date today;
 
-    return (Date){t->tm_mday, t->tm_mon + 1, t->tm_year + 1900};
+    today.day = t->tm_mday;
+    today.month = t->tm_mon + 1;
+    today.year = t->tm_year + 1900;
+    return today;
 }

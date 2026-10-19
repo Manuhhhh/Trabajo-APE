@@ -19,7 +19,7 @@ typedef struct {
     size_t matches;
 } Filter;
 
-/* ---------- Input ---------- */
+/* ---------- Entrada ---------- */
 
 /* Leer línea: lee una línea de la entrada sin el salto de línea; si la entrada termina, cierra el programa. */
 void read_line(char *buf);
@@ -33,10 +33,10 @@ int read_id(int *id);
 /* Leer monto: lee un monto en unidades de moneda y lo guarda en centavos; devuelve 1 si es válido. */
 int read_amount(const char *prompt, long long *cents);
 
-/* Leer fecha: lee una fecha en formato dd/mm/yyyy; si se presiona Enter usa la fecha de hoy. Devuelve 1 si es válida. */
+/* Leer fecha: lee una fecha en formato dd/mm/aaaa; si se presiona Enter usa la fecha de hoy. Devuelve 1 si es válida. */
 int read_date(const char *prompt, Date *d);
 
-/* ---------- Output ---------- */
+/* ---------- Salida ---------- */
 
 /* Mostrar monto: imprime un monto en centavos con formato $pesos.centavos. */
 void print_amount(long long cents);
@@ -53,7 +53,7 @@ void show_result(Result result);
 /* Mostrar usuario (acción): adaptador de print_user para usarlo en recorridos de la billetera. */
 void print_user_action(const User *user, void *data);
 
-/* ---------- Listings by criteria ---------- */
+/* ---------- Listados por criterio ---------- */
 
 /* Tiene operación en período: indica si el usuario tiene alguna operación entre from y to, ambas incluidas. */
 int has_operation_in_period(const User *user, Date from, Date to);
@@ -61,7 +61,7 @@ int has_operation_in_period(const User *user, Date from, Date to);
 /* Aplicar filtro: muestra el usuario si cumple el criterio del filtro y cuenta las coincidencias. */
 void apply_filter(const User *user, void *data);
 
-/* ---------- Menu commands ---------- */
+/* ---------- Comandos del menú ---------- */
 
 /* Mostrar menú: imprime las opciones disponibles del programa. */
 void show_menu(void);
@@ -134,7 +134,6 @@ int read_id(int *id) {
     return ok;
 }
 
-/* Reads an amount in currency units and stores it in cents. */
 int read_amount(const char *prompt, long long *cents) {
     char line[LINE_SIZE];
     char *end;
@@ -151,7 +150,6 @@ int read_amount(const char *prompt, long long *cents) {
     return ok;
 }
 
-/* Reads a date as dd/mm/yyyy; pressing Enter uses today's date. */
 int read_date(const char *prompt, Date *d) {
     char line[LINE_SIZE];
     int ok;
@@ -179,28 +177,44 @@ void print_user(const User *user) {
 
 void print_history(const User *user) {
     size_t i;
+    const char *type_name;
 
     for (i = 0; i < operation_list_count(user->operations); i++) {
         const Operation *op = operation_list_get(user->operations, i);
 
+        if (op->type == DEPOSIT) {
+            type_name = "depósito";
+        } else {
+            type_name = "retiro";
+        }
         printf("    #%d %02d/%02d/%04d %-10s ", op->id, op->date.day, op->date.month,
-               op->date.year, op->type == DEPOSIT ? "depósito" : "retiro");
+               op->date.year, type_name);
         print_amount(op->amount);
         putchar('\n');
     }
 }
 
 void show_result(Result result) {
-    const char *const messages[] = {
-        [RESULT_OK] = "Operación realizada con éxito.",
-        [RESULT_NOT_FOUND] = "No existe un usuario con ese id.",
-        [RESULT_INSUFFICIENT_FUNDS] = "Saldo insuficiente para este retiro.",
-        [RESULT_BALANCE_NOT_ZERO] = "El usuario todavía tiene saldo. Retírelo antes de eliminarlo.",
-        [RESULT_INVALID_AMOUNT] = "El monto debe ser mayor que cero.",
-        [RESULT_INVALID_DATE] = "La fecha no es válida.",
-    };
-
-    printf("%s\n", messages[result]);
+    switch (result) {
+    case RESULT_OK:
+        printf("Operación realizada con éxito.\n");
+        break;
+    case RESULT_NOT_FOUND:
+        printf("No existe un usuario con ese id.\n");
+        break;
+    case RESULT_INSUFFICIENT_FUNDS:
+        printf("Saldo insuficiente para este retiro.\n");
+        break;
+    case RESULT_BALANCE_NOT_ZERO:
+        printf("El usuario todavía tiene saldo. Retírelo antes de eliminarlo.\n");
+        break;
+    case RESULT_INVALID_AMOUNT:
+        printf("El monto debe ser mayor que cero.\n");
+        break;
+    case RESULT_INVALID_DATE:
+        printf("La fecha no es válida.\n");
+        break;
+    }
 }
 
 void print_user_action(const User *user, void *data) {
@@ -242,16 +256,16 @@ void apply_filter(const User *user, void *data) {
 }
 
 void show_menu(void) {
-    puts("\n=== Billetera virtual ===");
-    puts("1. Registrar usuario");
-    puts("2. Buscar usuario por id (datos e historial)");
-    puts("3. Eliminar usuario");
-    puts("4. Depositar dinero");
-    puts("5. Retirar dinero");
-    puts("6. Consultar saldo");
-    puts("7. Listar usuarios por criterio");
-    puts("8. Listar todos los usuarios");
-    puts("0. Salir");
+    printf("\n=== Billetera virtual ===\n");
+    printf("1. Registrar usuario\n");
+    printf("2. Buscar usuario por id (datos e historial)\n");
+    printf("3. Eliminar usuario\n");
+    printf("4. Depositar dinero\n");
+    printf("5. Retirar dinero\n");
+    printf("6. Consultar saldo\n");
+    printf("7. Listar usuarios por criterio\n");
+    printf("8. Listar todos los usuarios\n");
+    printf("0. Salir\n");
 }
 
 void cmd_register(Wallet *wallet) {
@@ -276,7 +290,7 @@ void cmd_find(const Wallet *wallet) {
         printf("Id inválido.\n");
     } else {
         user = wallet_find(wallet, id);
-        if (!user) {
+        if (user == NULL) {
             show_result(RESULT_NOT_FOUND);
         } else {
             print_user(user);
@@ -308,8 +322,11 @@ void cmd_movement(Wallet *wallet, int is_deposit) {
     } else if (!read_date("Fecha", &date)) {
         printf("Fecha inválida.\n");
     } else {
-        result = is_deposit ? wallet_deposit(wallet, id, amount, date)
-                            : wallet_withdraw(wallet, id, amount, date);
+        if (is_deposit) {
+            result = wallet_deposit(wallet, id, amount, date);
+        } else {
+            result = wallet_withdraw(wallet, id, amount, date);
+        }
         show_result(result);
     }
 }
@@ -322,7 +339,7 @@ void cmd_balance(const Wallet *wallet) {
         printf("Id inválido.\n");
     } else {
         user = wallet_find(wallet, id);
-        if (!user) {
+        if (user == NULL) {
             show_result(RESULT_NOT_FOUND);
         } else {
             printf("Saldo de %s: ", user->name);
@@ -333,14 +350,15 @@ void cmd_balance(const Wallet *wallet) {
 }
 
 void cmd_list_by_criteria(const Wallet *wallet) {
-    Filter filter = {0};
+    Filter filter;
     long value;
     int valid = 1;
 
-    puts("Criterios:");
-    puts("  1. Saldo mayor que un monto");
-    puts("  2. Con operaciones en un período");
-    puts("  3. Con más de N operaciones");
+    filter.matches = 0;
+    printf("Criterios:\n");
+    printf("  1. Saldo mayor que un monto\n");
+    printf("  2. Con operaciones en un período\n");
+    printf("  3. Con más de N operaciones\n");
     if (!read_long("Elija un criterio: ", &value)) {
         valid = 0;
         printf("Criterio inválido.\n");
@@ -382,7 +400,7 @@ void cmd_list_by_criteria(const Wallet *wallet) {
 
 void cmd_list_all(const Wallet *wallet) {
     if (wallet_count(wallet) == 0) {
-        puts("No hay usuarios registrados.");
+        printf("No hay usuarios registrados.\n");
     } else {
         wallet_for_each(wallet, print_user_action, NULL);
         printf("Total: %zu usuario(s).\n", wallet_count(wallet));
@@ -410,12 +428,12 @@ int main(void) {
             case 8: cmd_list_all(wallet); break;
             case 0:
                 wallet_destroy(wallet);
-                puts("¡Hasta luego!");
+                printf("¡Hasta luego!\n");
                 break;
             default:
                 printf("Opción inválida.\n");
             }
         }
     }
-    return EXIT_SUCCESS;
+    return 0;
 }

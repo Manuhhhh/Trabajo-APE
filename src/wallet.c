@@ -1,5 +1,5 @@
-#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "wallet.h"
 
 typedef struct Node {
@@ -16,7 +16,7 @@ struct Wallet {
     int next_operation_id;
 };
 
-/* ---------- AVL balancing ---------- */
+/* ---------- Balanceo AVL ---------- */
 
 /* Altura: devuelve la altura de un nodo, o 0 si el nodo es NULL. */
 int height(const Node *n);
@@ -33,7 +33,7 @@ Node *rotate_left(Node *x);
 /* Rebalancear: recalcula la altura del nodo y lo rebalancea si la diferencia de alturas entre sus hijos (izq - der) sale de [-1, 1]. Devuelve la nueva raíz del subárbol. */
 Node *rebalance(Node *n);
 
-/* ---------- Recursive tree operations ---------- */
+/* ---------- Operaciones recursivas del árbol ---------- */
 
 /* Insertar nodo: inserta el nodo nuevo ordenado por id y devuelve la raíz del subárbol. */
 Node *insert_node(Node *n, Node *new_node);
@@ -53,7 +53,7 @@ void for_each_node(const Node *n, Action action, void *data);
 /* Destruir nodos: libera todos los nodos del subárbol junto con sus historiales. */
 void destroy_nodes(Node *n);
 
-/* ---------- Public interface ---------- */
+/* ---------- Interfaz pública ---------- */
 
 /* Registrar movimiento: valida un depósito o retiro y lo agrega al historial del usuario. */
 Result record_movement(Wallet *wallet, int id, OperationType type, long long amount, Date date);
@@ -86,14 +86,23 @@ Result wallet_withdraw(Wallet *wallet, int id, long long amount, Date date);
 void wallet_for_each(const Wallet *wallet, Action action, void *data);
 
 int height(const Node *n) {
-    return n ? n->height : 0;
+    int result = 0;
+
+    if (n != NULL) {
+        result = n->height;
+    }
+    return result;
 }
 
 void update_height(Node *n) {
     int l = height(n->left);
     int r = height(n->right);
 
-    n->height = 1 + (l > r ? l : r);
+    if (l > r) {
+        n->height = 1 + l;
+    } else {
+        n->height = 1 + r;
+    }
 }
 
 Node *rotate_right(Node *y) {
@@ -136,7 +145,7 @@ Node *rebalance(Node *n) {
 }
 
 Node *insert_node(Node *n, Node *new_node) {
-    if (!n) {
+    if (n == NULL) {
         n = new_node;
     } else {
         if (new_node->user.id < n->user.id) {
@@ -152,14 +161,18 @@ Node *insert_node(Node *n, Node *new_node) {
 Node *find_node(Node *n, int id) {
     Node *found = n;
 
-    if (n && n->user.id != id) {
-        found = find_node(id < n->user.id ? n->left : n->right, id);
+    if (n != NULL && n->user.id != id) {
+        if (id < n->user.id) {
+            found = find_node(n->left, id);
+        } else {
+            found = find_node(n->right, id);
+        }
     }
     return found;
 }
 
 Node *remove_min(Node *n, Node **min) {
-    if (!n->left) {
+    if (n->left == NULL) {
         *min = n;
         n = n->right;
     } else {
@@ -172,7 +185,7 @@ Node *remove_min(Node *n, Node **min) {
 Node *remove_node(Node *n, int id, Node **removed) {
     Node *result = n;
 
-    if (n) {
+    if (n != NULL) {
         if (id < n->user.id) {
             n->left = remove_node(n->left, id, removed);
             result = rebalance(n);
@@ -184,9 +197,9 @@ Node *remove_node(Node *n, int id, Node **removed) {
             Node *rest;
 
             *removed = n;
-            if (!n->left) {
+            if (n->left == NULL) {
                 result = n->right;
-            } else if (!n->right) {
+            } else if (n->right == NULL) {
                 result = n->left;
             } else {
                 rest = remove_min(n->right, &successor);
@@ -200,7 +213,7 @@ Node *remove_node(Node *n, int id, Node **removed) {
 }
 
 void for_each_node(const Node *n, Action action, void *data) {
-    if (n) {
+    if (n != NULL) {
         for_each_node(n->left, action, data);
         action(&n->user, data);
         for_each_node(n->right, action, data);
@@ -208,7 +221,7 @@ void for_each_node(const Node *n, Action action, void *data) {
 }
 
 void destroy_nodes(Node *n) {
-    if (n) {
+    if (n != NULL) {
         destroy_nodes(n->left);
         destroy_nodes(n->right);
         operation_list_destroy(n->user.operations);
@@ -217,7 +230,7 @@ void destroy_nodes(Node *n) {
 }
 
 Wallet *wallet_create(void) {
-    Wallet *wallet = malloc(sizeof *wallet);
+    Wallet *wallet = malloc(sizeof(Wallet));
 
     wallet->root = NULL;
     wallet->count = 0;
@@ -227,7 +240,7 @@ Wallet *wallet_create(void) {
 }
 
 void wallet_destroy(Wallet *wallet) {
-    if (wallet) {
+    if (wallet != NULL) {
         destroy_nodes(wallet->root);
         free(wallet);
     }
@@ -238,12 +251,17 @@ size_t wallet_count(const Wallet *wallet) {
 }
 
 void wallet_register(Wallet *wallet, const char *name, int *assigned_id) {
-    Node *node = calloc(1, sizeof *node);
+    Node *node = malloc(sizeof(Node));
 
+    node->user.id = wallet->next_user_id;
+    wallet->next_user_id++;
+    strncpy(node->user.name, name, MAX_NAME - 1);
+    node->user.name[MAX_NAME - 1] = '\0';
+    node->user.balance = 0;
     node->user.operations = operation_list_create();
-    node->user.id = wallet->next_user_id++;
-    snprintf(node->user.name, sizeof node->user.name, "%s", name);
     node->height = 1;
+    node->left = NULL;
+    node->right = NULL;
 
     wallet->root = insert_node(wallet->root, node);
     wallet->count++;
@@ -252,8 +270,12 @@ void wallet_register(Wallet *wallet, const char *name, int *assigned_id) {
 
 const User *wallet_find(const Wallet *wallet, int id) {
     const Node *n = find_node(wallet->root, id);
+    const User *result = NULL;
 
-    return n ? &n->user : NULL;
+    if (n != NULL) {
+        result = &n->user;
+    }
+    return result;
 }
 
 Result wallet_remove(Wallet *wallet, int id) {
@@ -261,7 +283,7 @@ Result wallet_remove(Wallet *wallet, int id) {
     Node *removed = NULL;
     Result result = RESULT_NOT_FOUND;
 
-    if (n) {
+    if (n != NULL) {
         if (n->user.balance != 0) {
             result = RESULT_BALANCE_NOT_ZERO;
         } else {
@@ -284,7 +306,7 @@ Result record_movement(Wallet *wallet, int id, OperationType type, long long amo
         result = RESULT_INVALID_AMOUNT;
     } else if (!date_is_valid(date)) {
         result = RESULT_INVALID_DATE;
-    } else if (!n) {
+    } else if (n == NULL) {
         result = RESULT_NOT_FOUND;
     } else if (type == WITHDRAWAL && amount > n->user.balance) {
         result = RESULT_INSUFFICIENT_FUNDS;
@@ -295,7 +317,11 @@ Result record_movement(Wallet *wallet, int id, OperationType type, long long amo
         op.date = date;
         operation_list_append(n->user.operations, op);
         wallet->next_operation_id++;
-        n->user.balance += type == DEPOSIT ? amount : -amount;
+        if (type == DEPOSIT) {
+            n->user.balance += amount;
+        } else {
+            n->user.balance -= amount;
+        }
     }
     return result;
 }
