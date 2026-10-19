@@ -2,23 +2,7 @@
 
 Proyecto del curso PCII 2026. Simulación en C de una billetera virtual: se registran usuarios, cada uno con un saldo y un historial de ingresos y egresos, que se pueden consultar y listar según distintos criterios. No realiza transacciones reales.
 
-## Estructuras de datos
-
-- **Usuarios:** árbol AVL ordenado por id. Búsqueda, alta y baja en O(log n) en el peor caso; el recorrido in-order entrega los usuarios ordenados por id.
-- **Historial de operaciones:** arreglo dinámico por usuario. Agregar al final en O(1) amortizado y acceso por posición en O(1).
-- Los montos se guardan en **centavos** (`long long`) para evitar errores de redondeo.
-
-El detalle del análisis, la comparación de estructuras y la especificación de los TAD está en [`Analisis y diseño - Billetera Virtual.pdf`](Analisis%20y%20dise%C3%B1o%20-%20Billetera%20Virtual.pdf).
-
-## Estructura del proyecto
-
-| Archivo | Contenido |
-| --- | --- |
-| `src/main.c` | Menú e interacción con el usuario |
-| `src/wallet.c`, `include/wallet.h` | TAD `Wallet` (AVL de usuarios) |
-| `src/operation_list.c`, `include/operation_list.h` | TAD `OperationList` (historial) |
-| `include/operation.h`, `include/user.h` | Tipos `Operation` y `User` |
-| `src/date.c`, `include/date.h` | Validación y comparación de fechas |
+El análisis, la comparación de estructuras y la especificación de los TAD están en [`Analisis y diseño - Billetera Virtual.pdf`](Analisis%20y%20dise%C3%B1o%20-%20Billetera%20Virtual.pdf).
 
 ## Compilar y ejecutar
 
@@ -30,15 +14,101 @@ make run    # compila y ejecuta
 make clean  # borra build/
 ```
 
-## Funcionalidades
+Se compila con `-std=c11 -Wall -Wextra -Wpedantic`, sin warnings.
 
-1. Registrar usuario (el id lo asigna el sistema)
-2. Buscar usuario por id (datos e historial)
-3. Eliminar usuario (solo con saldo cero; se elimina también su historial)
-4. Depositar dinero
-5. Retirar dinero (verifica saldo suficiente)
-6. Consultar saldo
-7. Listar usuarios por criterio: saldo mayor que un monto, con operaciones en un período, o con más de N operaciones
-8. Listar todos los usuarios
+## Uso
 
-Cada ingreso o egreso registra la operación en el historial y actualiza el saldo en un único paso. Las fechas se ingresan como `dd/mm/aaaa` (Enter usa la fecha de hoy) y los montos con punto decimal, por ejemplo `100.50`.
+El programa muestra un menú numerado y se interactúa escribiendo la opción:
+
+| Opción | Acción |
+| --- | --- |
+| 1 | Registrar usuario (el id lo asigna el sistema) |
+| 2 | Buscar usuario por id (datos e historial) |
+| 3 | Eliminar usuario (solo con saldo cero; se elimina también su historial) |
+| 4 | Depositar dinero |
+| 5 | Retirar dinero (verifica saldo suficiente) |
+| 6 | Consultar saldo |
+| 7 | Listar usuarios por criterio: saldo mayor que un monto, con operaciones en un período, o con más de N operaciones |
+| 8 | Listar todos los usuarios (en orden de id) |
+| 0 | Salir |
+
+- Los montos se ingresan con punto decimal, por ejemplo `100.50`.
+- Las fechas se ingresan como `dd/mm/aaaa`; con Enter se usa la fecha de hoy. Se aceptan años entre 1900 y 2100.
+- Si un dato no tiene el formato esperado, se muestra `Entrada incorrecta, intente de nuevo.` y se vuelve al menú.
+- Cada depósito o retiro registra la operación en el historial y actualiza el saldo en un único paso.
+
+## Estructura del proyecto
+
+| Archivo | Contenido |
+| --- | --- |
+| `src/main.c` | Menú, lectura de datos y listados. Es la única parte que interactúa con el usuario |
+| `src/wallet.c`, `include/wallet.h` | Tipos `Operation` y `User`, TAD `OperationList` (historial) y TAD `Wallet` (AVL de usuarios) |
+| `src/date.c`, `include/date.h` | Tipo `Date`: validación, comparación y fecha de hoy |
+
+Dependencias: `main.c` usa `wallet.h`, y `wallet.h` usa `date.h`. La lógica (`wallet`, `date`) no hace ninguna entrada ni salida; todo lo que se lee o imprime está en `main.c`.
+
+## Estructuras de datos
+
+- **Usuarios:** árbol AVL ordenado por id. Búsqueda, alta y baja en O(log n) en el peor caso; el recorrido in-order entrega los usuarios ordenados por id.
+- **Historial de operaciones:** arreglo dinámico por usuario. Agregar al final en O(1) amortizado y acceso por posición en O(1).
+- **Montos:** en centavos, como `long long`.
+
+## Decisiones de diseño
+
+### AVL para los usuarios
+
+- **Por qué un árbol y no un arreglo o una lista.** Todas las consultas son por id (buscar, depositar, retirar, eliminar). En un arreglo ordenado la búsqueda es O(log n), pero cada alta o baja desplaza elementos (O(n)); en una lista todo es O(n). Un árbol de búsqueda balanceado da O(log n) en las tres operaciones y su recorrido in-order entrega los usuarios ya ordenados por id, que es lo que necesitan los listados.
+- **Por qué AVL y no un ABB simple.** Los ids los asigna el sistema de forma creciente (`next_user_id`), así que las altas llegan siempre ordenadas. En un ABB sin balanceo eso lo degenera en una lista enlazada (O(n) por operación). El AVL se rebalancea con rotaciones y mantiene la altura en O(log n).
+- **Los ids no se reutilizan.** `next_user_id` solo crece, aunque se elimine un usuario, así un id nunca apunta a dos personas distintas en momentos distintos. El contador de ids de operaciones (`next_operation_id`) es global a la billetera por la misma razón.
+- **Se guarda la altura, no el factor de balance.** Cada nodo almacena solo `height`; el balance (`altura izq - altura der`) se calcula cuando hace falta. Guardar ambos obligaba a mantenerlos sincronizados en cada rotación.
+- **Un único `rebalance` para alta y baja.** Después de insertar o eliminar, la recursión vuelve hacia la raíz llamando a `rebalance` en cada nodo del camino. Los casos izquierda-derecha y derecha-izquierda se detectan comparando las alturas de los nietos con `<` y `>` estrictos; con alturas iguales (situación que solo ocurre al eliminar) corresponde una rotación simple, y la comparación estricta la elige correctamente.
+- **Baja con dos hijos.** `remove_min` desconecta el sucesor in-order (el menor del subárbol derecho) y el sucesor ocupa el lugar del nodo eliminado **reenlazando punteros**, en lugar de copiar el `User` al nodo a borrar. Así el nodo eliminado se devuelve intacto en `*removed` y `wallet_remove` libera su historial sin copiar estructuras.
+- **Recursión.** Las operaciones del árbol son recursivas porque el AVL garantiza profundidad O(log n): no hay riesgo de desbordar la pila y el código queda mucho más corto que con versiones iterativas.
+
+### Historial de operaciones
+
+- **Arreglo dinámico con duplicación de capacidad.** Se parte de `INITIAL_CAPACITY` (4) y la capacidad se duplica al llenarse. Agregar al final es O(1) amortizado y el acceso por posición es O(1), que es lo que usan el historial y el filtro por período al recorrer. No se necesitan inserciones en el medio, que es donde una lista enlazada tendría ventaja; además el arreglo usa menos memoria por operación y recorre memoria contigua.
+- **Orden de registro, no de fecha.** La fecha la ingresa el usuario, por lo que pueden cargarse movimientos con fechas desordenadas. El historial se muestra en el orden en que se registraron, y el filtro por período recorre todo el historial (O(k) por usuario) en lugar de asumir que está ordenado por fecha.
+
+### Montos y saldos
+
+- **Centavos en `long long`.** Todo el modelo (`Operation.amount`, `User.balance`) usa enteros en centavos: `float`/`double` acumulan errores de redondeo en sumas y restas repetidas, y comparar saldos sería poco fiable. `long long` evita desbordes con montos grandes.
+- **La conversión a centavos ocurre solo en la entrada.** `read_amount` lee un `double` y lo pasa a centavos con `(long long)(value * 100)`; a partir de ahí no vuelven a aparecer números de coma flotante. Esa conversión **trunca** y puede perder un centavo con algunos decimales (por ejemplo `0.29` se guarda como 28 centavos, porque `0.29 * 100` da `28.999...`). Es una limitación aceptada del parseo con `scanf("%lf")`.
+
+### Lógica separada de la interfaz
+
+- **Tipos opacos.** `Wallet` y `OperationList` se declaran en el header sin su definición; solo `wallet.c` conoce sus campos. Quien use el TAD no puede dejar el árbol o el arreglo en un estado inconsistente.
+- **Solo lectura hacia afuera.** `wallet_find` y `operation_list_get` devuelven `const`, de modo que la interfaz puede consultar un usuario o una operación pero no modificar saldos saltándose las validaciones.
+- **El TAD devuelve `Result`, no imprime.** `wallet.c` no hace `printf`: devuelve un código (`RESULT_NOT_FOUND`, `RESULT_INSUFFICIENT_FUNDS`, …) y `main.c` decide el mensaje (`show_result`).
+- **Recorrido con callback.** `wallet_for_each(wallet, action, data)` aplica una función a cada usuario en orden de id. Así los listados y filtros viven en `main.c` sin exponer los nodos del árbol ni copiar usuarios a un arreglo auxiliar. El `void *data` lleva el contexto (por ejemplo, el `Filter` con el criterio, el monto, el período y el contador de coincidencias).
+
+### Movimientos
+
+- **Un único paso para registrar y actualizar.** `record_movement` valida y, solo si todo es correcto, agrega la operación **y** actualiza el saldo. No existe un estado intermedio donde historial y saldo no coincidan. Depósito y retiro son envoltorios de la misma función porque solo difieren en el signo y en la verificación de saldo.
+- **Orden de las validaciones.** Se verifica monto positivo, fecha válida, existencia del usuario y, en retiros, saldo suficiente, de modo que el mensaje corresponde al primer error real.
+- **Eliminar solo con saldo cero.** Evita que desaparezca dinero de la billetera sin un retiro registrado. Al eliminar un usuario se destruye también su historial.
+
+### Fechas
+
+- **Rango 1900-2100 y calendario gregoriano.** `days_in_month` considera los años bisiestos (divisibles por 4, salvo los múltiplos de 100 que no lo son de 400). El rango acotado es suficiente para el dominio y permite rechazar fechas absurdas.
+- **Comparación con clave `aaaammdd`.** `key` convierte la fecha en `año*10000 + mes*100 + día`, que conserva el orden cronológico: comparar fechas es comparar dos enteros, más simple y menos propenso a errores que comparar año, luego mes y luego día.
+- **No se valida que la fecha no sea futura.** Se permite cargar movimientos con cualquier fecha válida del rango.
+
+### Lectura de datos
+
+- **`scanf` y `clear_buffer`.** Cada lectura usa `scanf` con el formato que corresponde (`%d`, `%lf`, `%s`, `%d/%d/%d`) y se verifica que devuelva la cantidad de campos esperada. `scanf` deja en el buffer el salto de línea (o el resto de una entrada inválida como `abc`) y la siguiente lectura fallaría sin avanzar; por eso cada función de lectura llama a `clear_buffer`, que descarta lo que quedó hasta el salto de línea.
+- **Una función, una tarea completa.** `read_int`, `read_amount`, `read_date` y `read_string` muestran el mensaje, leen, limpian el buffer, avisan si la entrada es incorrecta y devuelven 1 o 0. Así `main.c` encadena las lecturas con `&&` (`read_int(...) && read_amount(...) && read_date(...)`) y el flujo se corta en el primer dato inválido, sin repetir mensajes en cada comando.
+- **`Enter = hoy` en la fecha.** `scanf` no puede distinguir una línea vacía, por eso `read_date` mira el primer carácter con `getchar`: si es el salto de línea usa `date_today`, y si no lo devuelve al buffer con `ungetc` para que `scanf` lo lea.
+
+### Convenciones de código
+
+- Cada función tiene una única salida (`return` al final, con una variable `result` cuando hace falta) y no se usan operadores ternarios.
+- Las comparaciones con punteros son explícitas (`!= NULL`, `== NULL`).
+- Los comentarios de cada función están en un prototipo al inicio del archivo; los de los headers públicos describen el contrato.
+
+## Limitaciones conocidas
+
+- Las lecturas son simples a propósito: `scanf("%s")` no limita el largo (el nombre se lee como una sola palabra y `wallet_register` lo trunca a 49 caracteres), y `12abc` se lee como 12.
+- Si la entrada termina (EOF) sin haber elegido la opción 0, `clear_buffer` y el menú quedan en un bucle infinito. Al usar el programa por pipe hay que terminar siempre con `0`.
+- No se comprueba el resultado de `malloc`/`realloc`.
+- Los datos viven solo en memoria: al cerrar el programa se pierden.
