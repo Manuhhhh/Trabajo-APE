@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include "wallet.h"
 
 #define LINE_SIZE 256
@@ -21,14 +20,14 @@ typedef struct {
 
 /* ---------- Entrada ---------- */
 
-/* Leer línea: lee una línea de la entrada sin el salto de línea; si la entrada termina, cierra el programa. */
-void read_line(char *buf);
+/* Limpiar buffer: descarta lo que quedó en la entrada hasta el salto de línea, para no trabar la próxima lectura. */
+void clear_buffer(void);
 
-/* Leer entero: muestra el mensaje y lee un entero; devuelve 1 si la entrada es válida. */
-int read_long(const char *prompt, long *value);
+/* Leer texto: muestra el mensaje y lee una palabra; devuelve 1 si es válida. */
+int read_string(const char *prompt, char *buf);
 
-/* Leer id: pide un id de usuario positivo; devuelve 1 si es válido. */
-int read_id(int *id);
+/* Leer entero: muestra el mensaje y lee un entero; devuelve 1 si es válido. */
+int read_int(const char *prompt, int *value);
 
 /* Leer monto: lee un monto en unidades de moneda y lo guarda en centavos; devuelve 1 si es válido. */
 int read_amount(const char *prompt, long long *cents);
@@ -90,77 +89,68 @@ void cmd_list_all(const Wallet *wallet);
 /* Punto de entrada: muestra el menú en bucle y ejecuta la opción elegida hasta salir. */
 int main(void);
 
-void read_line(char *buf) {
-    int ch;
-    int items;
-
-    /* Leer el texto hasta el salto de línea */
-    buf[0] = '\0';
-    items = scanf("%255[^\n]", buf);
-
-    /* Si no se leyó nada y la entrada terminó, cerrar el programa */
-    if (items != 1 && feof(stdin)) {
-        printf("\nFin de la entrada.\n");
-        exit(EXIT_SUCCESS);
-    }
-
-    /*
-     * Sacar del buffer de entrada lo que scanf dejó: el salto de línea o el resto
-     * de una línea más larga. Si no se sacan, la próxima lectura falla sin avanzar.
-     */
-    ch = getchar();
-    while (ch != '\n' && !feof(stdin)) {
-        ch = getchar();
+void clear_buffer(void) {
+    while (getchar() != '\n') {
     }
 }
 
-int read_long(const char *prompt, long *value) {
-    char line[LINE_SIZE];
-    char *end;
+int read_string(const char *prompt, char *buf) {
+    int ok;
 
     printf("%s", prompt);
-    read_line(line);
-    *value = strtol(line, &end, 10);
-    return end != line && *end == '\0';
+    ok = scanf("%s", buf) == 1;
+    clear_buffer();
+    if (!ok) {
+        printf("Entrada incorrecta, intente de nuevo.\n");
+    }
+    return ok;
 }
 
-int read_id(int *id) {
-    long value;
-    int ok = read_long("Id de usuario: ", &value) && value > 0;
+int read_int(const char *prompt, int *value) {
+    int ok;
 
-    if (ok) {
-        *id = (int)value;
+    printf("%s", prompt);
+    ok = scanf("%d", value) == 1;
+    clear_buffer();
+    if (!ok) {
+        printf("Entrada incorrecta, intente de nuevo.\n");
     }
     return ok;
 }
 
 int read_amount(const char *prompt, long long *cents) {
-    char line[LINE_SIZE];
-    char *end;
     double value;
     int ok;
 
     printf("%s", prompt);
-    read_line(line);
-    value = strtod(line, &end);
-    ok = end != line && *end == '\0' && value > 0 && value < 1e9;
+    ok = scanf("%lf", &value) == 1;
+    clear_buffer();
     if (ok) {
-        *cents = (long long)(value * 100 + 0.5);
+        *cents = (long long)(value * 100);
+    } else {
+        printf("Entrada incorrecta, intente de nuevo.\n");
     }
     return ok;
 }
 
 int read_date(const char *prompt, Date *d) {
-    char line[LINE_SIZE];
+    int ch;
     int ok;
 
     printf("%s (dd/mm/aaaa, Enter = hoy): ", prompt);
-    read_line(line);
-    if (line[0] == '\0') {
+
+    /* Si el primer carácter es el salto de línea se usa la fecha de hoy; si no, se devuelve al buffer */
+    ch = getchar();
+    if (ch == '\n') {
         *d = date_today();
         ok = 1;
     } else {
-        ok = sscanf(line, "%d/%d/%d", &d->day, &d->month, &d->year) == 3 && date_is_valid(*d);
+        ungetc(ch, stdin);
+        ok = scanf("%d/%d/%d", &d->day, &d->month, &d->year) == 3 && date_is_valid(*d);
+        clear_buffer();
+        if (!ok) {
+            printf("Entrada incorrecta, intente de nuevo.\n");
+        }
     }
     return ok;
 }
@@ -272,11 +262,7 @@ void cmd_register(Wallet *wallet) {
     char name[LINE_SIZE];
     int id;
 
-    printf("Nombre: ");
-    read_line(name);
-    if (name[0] == '\0') {
-        printf("El nombre no puede estar vacío.\n");
-    } else {
+    if (read_string("Nombre: ", name)) {
         wallet_register(wallet, name, &id);
         printf("Usuario registrado con id %d.\n", id);
     }
@@ -286,9 +272,7 @@ void cmd_find(const Wallet *wallet) {
     int id;
     const User *user;
 
-    if (!read_id(&id)) {
-        printf("Id inválido.\n");
-    } else {
+    if (read_int("Id de usuario: ", &id)) {
         user = wallet_find(wallet, id);
         if (user == NULL) {
             show_result(RESULT_NOT_FOUND);
@@ -302,9 +286,7 @@ void cmd_find(const Wallet *wallet) {
 void cmd_delete(Wallet *wallet) {
     int id;
 
-    if (!read_id(&id)) {
-        printf("Id inválido.\n");
-    } else {
+    if (read_int("Id de usuario: ", &id)) {
         show_result(wallet_remove(wallet, id));
     }
 }
@@ -315,13 +297,7 @@ void cmd_movement(Wallet *wallet, int is_deposit) {
     Date date;
     Result result;
 
-    if (!read_id(&id)) {
-        printf("Id inválido.\n");
-    } else if (!read_amount("Monto: ", &amount)) {
-        printf("Monto inválido.\n");
-    } else if (!read_date("Fecha", &date)) {
-        printf("Fecha inválida.\n");
-    } else {
+    if (read_int("Id de usuario: ", &id) && read_amount("Monto: ", &amount) && read_date("Fecha", &date)) {
         if (is_deposit) {
             result = wallet_deposit(wallet, id, amount, date);
         } else {
@@ -335,9 +311,7 @@ void cmd_balance(const Wallet *wallet) {
     int id;
     const User *user;
 
-    if (!read_id(&id)) {
-        printf("Id inválido.\n");
-    } else {
+    if (read_int("Id de usuario: ", &id)) {
         user = wallet_find(wallet, id);
         if (user == NULL) {
             show_result(RESULT_NOT_FOUND);
@@ -351,41 +325,30 @@ void cmd_balance(const Wallet *wallet) {
 
 void cmd_list_by_criteria(const Wallet *wallet) {
     Filter filter;
-    long value;
-    int valid = 1;
+    int value;
+    int valid;
 
     filter.matches = 0;
     printf("Criterios:\n");
     printf("  1. Saldo mayor que un monto\n");
     printf("  2. Con operaciones en un período\n");
     printf("  3. Con más de N operaciones\n");
-    if (!read_long("Elija un criterio: ", &value)) {
-        valid = 0;
-        printf("Criterio inválido.\n");
-    }
+    valid = read_int("Elija un criterio: ", &filter.criteria);
     if (valid) {
-        filter.criteria = (int)value;
         switch (filter.criteria) {
         case CRITERIA_BALANCE_ABOVE:
             valid = read_amount("Monto: ", &filter.amount);
-            if (!valid) {
-                printf("Monto inválido.\n");
-            }
             break;
         case CRITERIA_OPERATIONS_IN_PERIOD:
-            valid = read_date("Desde", &filter.from) && read_date("Hasta", &filter.to) &&
-                    date_compare(filter.from, filter.to) <= 0;
-            if (!valid) {
-                printf("Período inválido.\n");
+            valid = read_date("Desde", &filter.from) && read_date("Hasta", &filter.to);
+            if (valid && date_compare(filter.from, filter.to) > 0) {
+                valid = 0;
+                printf("Período inválido: la fecha desde es posterior a la fecha hasta.\n");
             }
             break;
         case CRITERIA_MORE_OPERATIONS:
-            valid = read_long("Cantidad de operaciones (N): ", &value) && value >= 0;
-            if (valid) {
-                filter.min_count = (size_t)value;
-            } else {
-                printf("Número inválido.\n");
-            }
+            valid = read_int("Cantidad de operaciones (N): ", &value);
+            filter.min_count = (size_t)value;
             break;
         default:
             valid = 0;
@@ -409,12 +372,11 @@ void cmd_list_all(const Wallet *wallet) {
 
 int main(void) {
     Wallet *wallet = wallet_create();
-    long option = -1;
+    int option = -1;
 
     while (option != 0) {
         show_menu();
-        if (!read_long("Opción: ", &option)) {
-            printf("Opción inválida.\n");
+        if (!read_int("Opción: ", &option)) {
             option = -1;
         } else {
             switch (option) {
@@ -426,14 +388,13 @@ int main(void) {
             case 6: cmd_balance(wallet); break;
             case 7: cmd_list_by_criteria(wallet); break;
             case 8: cmd_list_all(wallet); break;
-            case 0:
-                wallet_destroy(wallet);
-                printf("¡Hasta luego!\n");
-                break;
+            case 0: break;
             default:
                 printf("Opción inválida.\n");
             }
         }
     }
+    wallet_destroy(wallet);
+    printf("\n¡Hasta luego!\n");
     return 0;
 }
