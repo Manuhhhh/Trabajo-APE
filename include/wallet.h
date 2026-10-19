@@ -6,9 +6,9 @@
 #include "user.h"
 
 /*
- * ADT Wallet: set of users indexed by id.
- * Implemented as an AVL tree ordered by id: search, insert and remove in
- * O(log n) worst case, and in-order traversal in id order.
+ * TAD Billetera: conjunto de usuarios indexados por id.
+ * Implementado como un árbol AVL ordenado por id: búsqueda, alta y baja en
+ * O(log n) en el peor caso, y recorrido in-order en orden de id.
  */
 typedef struct Wallet Wallet;
 
@@ -21,27 +21,27 @@ typedef enum {
     RESULT_INVALID_DATE
 } Result;
 
-/* Action to run on each user during a traversal. */
+/* Acción a ejecutar sobre cada usuario durante un recorrido. */
 typedef void (*Action)(const User *user, void *data);
 
 Wallet *wallet_create(void);
 void wallet_destroy(Wallet *wallet);
 size_t wallet_count(const Wallet *wallet);
 
-/* Registers a user with an id assigned by the system; returns it in assigned_id. */
+/* Registra un usuario con un id asignado por el sistema y lo devuelve en assigned_id. */
 void wallet_register(Wallet *wallet, const char *name, int *assigned_id);
 
-/* Returns NULL if no user with that id exists. */
+/* Devuelve NULL si no existe un usuario con ese id. */
 const User *wallet_find(const Wallet *wallet, int id);
 
-/* Only users with a zero balance can be removed; their history is removed too. */
+/* Solo se puede eliminar un usuario con saldo cero; su historial se elimina también. */
 Result wallet_remove(Wallet *wallet, int id);
 
-/* Amounts in cents. */
+/* Montos en centavos. */
 Result wallet_deposit(Wallet *wallet, int id, long long amount, Date date);
 Result wallet_withdraw(Wallet *wallet, int id, long long amount, Date date);
 
-/* Visits every user in id order. */
+/* Visita todos los usuarios en orden de id. */
 void wallet_for_each(const Wallet *wallet, Action action, void *data);
 
 #endif

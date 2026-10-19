@@ -8,7 +8,7 @@ typedef enum { DEPOSIT, WITHDRAWAL } OperationType;
 typedef struct {
     int id;
     OperationType type;
-    long long amount;   /* in cents */
+    long long amount;   /* en centavos */
     Date date;
 } Operation;
 

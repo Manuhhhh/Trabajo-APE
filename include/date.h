@@ -7,13 +7,13 @@ typedef struct {
     int year;
 } Date;
 
-/* Returns 1 if the date exists in the Gregorian calendar (1900-2100), 0 otherwise. */
+/* Devuelve 1 si la fecha existe en el calendario gregoriano (1900-2100), 0 si no. */
 int date_is_valid(Date d);
 
-/* Returns <0, 0 or >0 if d is before, equal to or after other. */
+/* Devuelve <0, 0 o >0 si d es anterior, igual o posterior a other. */
 int date_compare(Date d, Date other);
 
-/* Current system date. */
+/* Fecha actual del sistema. */
 Date date_today(void);
 
 #endif

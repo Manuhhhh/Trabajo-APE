@@ -8,8 +8,8 @@
 typedef struct {
     int id;
     char name[MAX_NAME];
-    long long balance;              /* in cents */
-    OperationList *operations;      /* history in registration order */
+    long long balance;              /* en centavos */
+    OperationList *operations;      /* historial en orden de registro */
 } User;
 
 #endif
