@@ -2,6 +2,20 @@
 #include <string.h>
 #include "wallet.h"
 
+#define INITIAL_CAPACITY 4
+
+/* Lista de operaciones: arreglo dinámico; count son las cargadas y capacity las que caben antes de ampliar. */
+struct OperationList {
+    Operation *data;
+    size_t count;
+    size_t capacity;
+};
+
+/*
+ * Nodo del AVL. Cada nodo guarda un usuario; el subárbol izquierdo tiene ids menores
+ * y el derecho ids mayores. height es la altura del subárbol que cuelga del nodo
+ * (una hoja vale 1, un subárbol vacío NULL vale 0).
+ */
 typedef struct Node {
     User user;
     int height;
@@ -10,11 +24,28 @@ typedef struct Node {
 } Node;
 
 struct Wallet {
-    Node *root;
+    Node *root;             /* raíz del AVL; NULL si no hay usuarios */
     size_t count;
-    int next_user_id;
-    int next_operation_id;
+    int next_user_id;       /* solo crece: los ids eliminados no se reutilizan */
+    int next_operation_id;  /* id global de operaciones, compartido por todos los usuarios */
 };
+
+/* ---------- Historial de operaciones ---------- */
+
+/* Crear lista: reserva una lista de operaciones vacía. */
+OperationList *operation_list_create(void);
+
+/* Destruir lista: libera la lista junto con sus operaciones. */
+void operation_list_destroy(OperationList *list);
+
+/* Agregar operación: añade una operación al final de la lista, ampliando la memoria si hace falta. */
+void operation_list_append(OperationList *list, Operation op);
+
+/* Cantidad de operaciones: devuelve cuántas operaciones tiene la lista. */
+size_t operation_list_count(const OperationList *list);
+
+/* Obtener operación: devuelve la operación en la posición indicada, o NULL si está fuera de rango. */
+const Operation *operation_list_get(const OperationList *list, size_t pos);
 
 /* ---------- Balanceo AVL ---------- */
 
@@ -85,6 +116,42 @@ Result wallet_withdraw(Wallet *wallet, int id, long long amount, Date date);
 /* Recorrer usuarios: aplica una acción a cada usuario en orden de id. */
 void wallet_for_each(const Wallet *wallet, Action action, void *data);
 
+OperationList *operation_list_create(void) {
+    OperationList *list = malloc(sizeof(OperationList));
+
+    list->data = malloc(INITIAL_CAPACITY * sizeof(Operation));
+    list->count = 0;
+    list->capacity = INITIAL_CAPACITY;
+    return list;
+}
+
+void operation_list_destroy(OperationList *list) {
+    free(list->data);
+    free(list);
+}
+
+void operation_list_append(OperationList *list, Operation op) {
+    if (list->count == list->capacity) {
+        list->capacity = list->capacity * 2;
+        list->data = realloc(list->data, list->capacity * sizeof(Operation));
+    }
+    list->data[list->count] = op;
+    list->count++;
+}
+
+size_t operation_list_count(const OperationList *list) {
+    return list->count;
+}
+
+const Operation *operation_list_get(const OperationList *list, size_t pos) {
+    const Operation *result = NULL;
+
+    if (pos < list->count) {
+        result = &list->data[pos];
+    }
+    return result;
+}
+
 int height(const Node *n) {
     int result = 0;
 
@@ -110,6 +177,7 @@ Node *rotate_right(Node *y) {
 
     y->left = x->right;
     x->right = y;
+
     update_height(y);
     update_height(x);
     return x;
@@ -120,6 +188,7 @@ Node *rotate_left(Node *x) {
 
     x->right = y->left;
     y->left = x;
+
     update_height(x);
     update_height(y);
     return y;
@@ -130,6 +199,7 @@ Node *rebalance(Node *n) {
 
     update_height(n);
     balance = height(n->left) - height(n->right);
+
     if (balance > 1) {
         if (height(n->left->left) < height(n->left->right)) {
             n->left = rotate_left(n->left);
@@ -256,13 +326,14 @@ void wallet_register(Wallet *wallet, const char *name, int *assigned_id) {
     node->user.id = wallet->next_user_id;
     wallet->next_user_id++;
     strncpy(node->user.name, name, MAX_NAME - 1);
-    node->user.name[MAX_NAME - 1] = '\0';
+    node->user.name[MAX_NAME - 1] = '\0'; // Esto corta el nombre si supera la cantidad máxima de caracteres
     node->user.balance = 0;
     node->user.operations = operation_list_create();
     node->height = 1;
     node->left = NULL;
     node->right = NULL;
 
+    /* La raíz puede cambiar al insertar un nuevo nodo */
     wallet->root = insert_node(wallet->root, node);
     wallet->count++;
     *assigned_id = node->user.id;
@@ -287,6 +358,7 @@ Result wallet_remove(Wallet *wallet, int id) {
         if (n->user.balance != 0) {
             result = RESULT_BALANCE_NOT_ZERO;
         } else {
+            /* remove_node devuelve la nueva raíz y deja el nodo eliminado en removed para liberarlo acá */
             wallet->root = remove_node(wallet->root, id, &removed);
             operation_list_destroy(removed->user.operations);
             free(removed);
