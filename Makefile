@@ -1,28 +1,16 @@
-CC     = gcc
-CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -g -Iinclude -MMD -MP
+CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -g -Iinclude
+TARGET = build/wallet
 
-BUILD  = build
-TARGET = $(BUILD)/wallet
-
-SRC = src/main.c src/wallet.c src/operation_list.c src/date.c
-OBJ = $(SRC:src/%.c=$(BUILD)/%.o)
-DEP = $(OBJ:.o=.d)
-
-.PHONY: all run clean
-
-all: $(TARGET)
-
-$(TARGET): $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $^
-
-$(BUILD)/%.o: src/%.c
-	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -c -o $@ $<
+$(TARGET): $(wildcard src/*.c) $(wildcard include/*.h)
+	@mkdir -p build
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^)
 
 run: $(TARGET)
 	./$(TARGET)
 
 clean:
-	rm -rf $(BUILD)
+	rm -rf build
 
--include $(DEP)
+.PHONY: run clean
+
+# SETUP DE COMANDOS HECHO CON IA
