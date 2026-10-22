@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include "wallet.h"
 
 #define LINE_SIZE 256
@@ -12,10 +13,9 @@ enum {
 typedef struct {
     int criteria;
     long long amount;
-    Date from;
-    Date to;
+    Date *from;
+    Date *to;
     size_t min_count;
-    size_t matches;
 } Filter;
 
 /* ---------- Entrada ---------- */
@@ -32,8 +32,8 @@ int read_int(const char *prompt, int *value);
 /* Leer monto: lee un monto en unidades de moneda y lo guarda en centavos; devuelve 1 si es válido. */
 int read_amount(const char *prompt, long long *cents);
 
-/* Leer fecha: lee una fecha en formato dd/mm/aaaa; si se presiona Enter usa la fecha de hoy. Devuelve 1 si es válida. */
-int read_date(const char *prompt, Date *d);
+/* Leer fecha: lee una fecha en formato dd/mm/aaaa; si se presiona Enter usa la fecha de hoy. Devuelve 1 si es válida y deja en *d una fecha que el llamador debe liberar. */
+int read_date(const char *prompt, Date **d);
 
 /* ---------- Salida ---------- */
 
@@ -49,16 +49,13 @@ void print_history(const User *user);
 /* Mostrar resultado: imprime el mensaje correspondiente a un resultado de operación. */
 void show_result(Result result);
 
-/* Mostrar usuario (acción): adaptador de print_user para usarlo en recorridos de la billetera. */
-void print_user_action(const User *user, void *data);
-
 /* ---------- Listados por criterio ---------- */
 
 /* Tiene operación en período: indica si el usuario tiene alguna operación entre from y to, ambas incluidas. */
-int has_operation_in_period(const User *user, Date from, Date to);
+int has_operation_in_period(const User *user, const Date *from, const Date *to);
 
-/* Aplicar filtro: muestra el usuario si cumple el criterio del filtro y cuenta las coincidencias. */
-void apply_filter(const User *user, void *data);
+/* Cumple filtro: indica si el usuario cumple el criterio del filtro. */
+int matches_filter(const User *user, const Filter *filter);
 
 /* ---------- Comandos del menú ---------- */
 
@@ -133,9 +130,12 @@ int read_amount(const char *prompt, long long *cents) {
     return ok;
 }
 
-int read_date(const char *prompt, Date *d) {
+int read_date(const char *prompt, Date **d) {
     int ch;
     int ok;
+    int day = 0;
+    int month = 0;
+    int year = 0;
 
     printf("%s (dd/mm/aaaa, Enter = hoy): ", prompt);
 
@@ -146,7 +146,11 @@ int read_date(const char *prompt, Date *d) {
         ok = 1;
     } else {
         ungetc(ch, stdin);
-        ok = scanf("%d/%d/%d", &d->day, &d->month, &d->year) == 3 && date_is_valid(*d);
+        ok = scanf("%d/%d/%d", &day, &month, &year) == 3;
+        if (ok) {
+            *d = date_create(day, month, year);
+            ok = *d != NULL;
+        }
         clear_buffer();
         if (!ok) {
             printf("Entrada incorrecta, intente de nuevo.\n");
@@ -160,26 +164,28 @@ void print_amount(long long cents) {
 }
 
 void print_user(const User *user) {
-    printf("[%d] %s | saldo: ", user->id, user->name);
-    print_amount(user->balance);
-    printf(" | operaciones: %zu\n", operation_list_count(user->operations));
+    printf("[%d] %s | saldo: ", user_id(user), user_name(user));
+    print_amount(user_balance(user));
+    printf(" | operaciones: %zu\n", operation_list_count(user_operations(user)));
 }
 
 void print_history(const User *user) {
+    const OperationList *operations = user_operations(user);
     size_t i;
     const char *type_name;
 
-    for (i = 0; i < operation_list_count(user->operations); i++) {
-        const Operation *op = operation_list_get(user->operations, i);
+    for (i = 0; i < operation_list_count(operations); i++) {
+        const Operation *op = operation_list_get(operations, i);
+        const Date *date = operation_date(op);
 
-        if (op->type == DEPOSIT) {
+        if (operation_type(op) == DEPOSIT) {
             type_name = "depósito";
         } else {
             type_name = "retiro";
         }
-        printf("    #%d %02d/%02d/%04d %-10s ", op->id, op->date.day, op->date.month,
-               op->date.year, type_name);
-        print_amount(op->amount);
+        printf("    #%d %02d/%02d/%04d %-10s ", operation_id(op), date_day(date), date_month(date),
+               date_year(date), type_name);
+        print_amount(operation_amount(op));
         putchar('\n');
     }
 }
@@ -201,48 +207,37 @@ void show_result(Result result) {
     case RESULT_INVALID_AMOUNT:
         printf("El monto debe ser mayor que cero.\n");
         break;
-    case RESULT_INVALID_DATE:
-        printf("La fecha no es válida.\n");
-        break;
     }
 }
 
-void print_user_action(const User *user, void *data) {
-    (void)data;
-    print_user(user);
-}
-
-int has_operation_in_period(const User *user, Date from, Date to) {
+int has_operation_in_period(const User *user, const Date *from, const Date *to) {
+    const OperationList *operations = user_operations(user);
     size_t i;
     int found = 0;
 
-    for (i = 0; i < operation_list_count(user->operations) && !found; i++) {
-        const Date *d = &operation_list_get(user->operations, i)->date;
+    for (i = 0; i < operation_list_count(operations) && !found; i++) {
+        const Date *d = operation_date(operation_list_get(operations, i));
 
-        found = date_compare(*d, from) >= 0 && date_compare(*d, to) <= 0;
+        found = date_compare(d, from) >= 0 && date_compare(d, to) <= 0;
     }
     return found;
 }
 
-void apply_filter(const User *user, void *data) {
-    Filter *filter = data;
+int matches_filter(const User *user, const Filter *filter) {
     int matches = 0;
 
     switch (filter->criteria) {
     case CRITERIA_BALANCE_ABOVE:
-        matches = user->balance > filter->amount;
+        matches = user_balance(user) > filter->amount;
         break;
     case CRITERIA_OPERATIONS_IN_PERIOD:
         matches = has_operation_in_period(user, filter->from, filter->to);
         break;
     case CRITERIA_MORE_OPERATIONS:
-        matches = operation_list_count(user->operations) > filter->min_count;
+        matches = operation_list_count(user_operations(user)) > filter->min_count;
         break;
     }
-    if (matches) {
-        print_user(user);
-        filter->matches++;
-    }
+    return matches;
 }
 
 void show_menu(void) {
@@ -294,7 +289,7 @@ void cmd_delete(Wallet *wallet) {
 void cmd_movement(Wallet *wallet, int is_deposit) {
     int id;
     long long amount;
-    Date date;
+    Date *date;
     Result result;
 
     if (read_int("Id de usuario: ", &id) && read_amount("Monto: ", &amount) && read_date("Fecha", &date)) {
@@ -303,6 +298,7 @@ void cmd_movement(Wallet *wallet, int is_deposit) {
         } else {
             result = wallet_withdraw(wallet, id, amount, date);
         }
+        date_destroy(date);
         show_result(result);
     }
 }
@@ -316,8 +312,8 @@ void cmd_balance(const Wallet *wallet) {
         if (user == NULL) {
             show_result(RESULT_NOT_FOUND);
         } else {
-            printf("Saldo de %s: ", user->name);
-            print_amount(user->balance);
+            printf("Saldo de %s: ", user_name(user));
+            print_amount(user_balance(user));
             putchar('\n');
         }
     }
@@ -325,10 +321,14 @@ void cmd_balance(const Wallet *wallet) {
 
 void cmd_list_by_criteria(const Wallet *wallet) {
     Filter filter;
+    const User **users;
+    size_t i;
+    size_t matches = 0;
     int value;
     int valid;
 
-    filter.matches = 0;
+    filter.from = NULL;
+    filter.to = NULL;
     printf("Criterios:\n");
     printf("  1. Saldo mayor que un monto\n");
     printf("  2. Con operaciones en un período\n");
@@ -356,16 +356,32 @@ void cmd_list_by_criteria(const Wallet *wallet) {
         }
     }
     if (valid) {
-        wallet_for_each(wallet, apply_filter, &filter);
-        printf("Usuarios encontrados: %zu\n", filter.matches);
+        users = wallet_users(wallet);
+        for (i = 0; i < wallet_count(wallet); i++) {
+            if (matches_filter(users[i], &filter)) {
+                print_user(users[i]);
+                matches++;
+            }
+        }
+        free(users);
+        printf("Usuarios encontrados: %zu\n", matches);
     }
+    date_destroy(filter.from);
+    date_destroy(filter.to);
 }
 
 void cmd_list_all(const Wallet *wallet) {
+    const User **users;
+    size_t i;
+
     if (wallet_count(wallet) == 0) {
         printf("No hay usuarios registrados.\n");
     } else {
-        wallet_for_each(wallet, print_user_action, NULL);
+        users = wallet_users(wallet);
+        for (i = 0; i < wallet_count(wallet); i++) {
+            print_user(users[i]);
+        }
+        free(users);
         printf("Total: %zu usuario(s).\n", wallet_count(wallet));
     }
 }

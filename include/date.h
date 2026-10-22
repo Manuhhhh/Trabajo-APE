@@ -1,19 +1,29 @@
 #ifndef DATE_H
 #define DATE_H
 
-typedef struct {
-    int day;
-    int month;
-    int year;
-} Date;
+/*
+ * TAD Fecha: día, mes y año del calendario gregoriano (1900-2100).
+ * Solo se crea con date_create, date_today o date_copy, así que toda Date existente es válida.
+ */
+typedef struct Date Date;
 
-/* Devuelve 1 si la fecha existe en el calendario gregoriano (1900-2100), 0 si no. */
-int date_is_valid(Date d);
+/* Devuelve NULL si la fecha no existe en el calendario. Se libera con date_destroy. */
+Date *date_create(int day, int month, int year);
 
-/* Devuelve <0, 0 o >0 si d es anterior, igual o posterior a other. */
-int date_compare(Date d, Date other);
+/* Fecha actual del sistema. Se libera con date_destroy. */
+Date *date_today(void);
 
-/* Fecha actual del sistema. */
-Date date_today(void);
+/* Copia independiente de la fecha. Se libera con date_destroy. */
+Date *date_copy(const Date *date);
+
+/* Libera la fecha; acepta NULL. */
+void date_destroy(Date *date);
+
+int date_day(const Date *date);
+int date_month(const Date *date);
+int date_year(const Date *date);
+
+/* Devuelve <0, 0 o >0 si date es anterior, igual o posterior a other. */
+int date_compare(const Date *date, const Date *other);
 
 #endif

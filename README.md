@@ -42,15 +42,19 @@ El programa muestra un menú numerado y se interactúa escribiendo la opción:
 | Archivo | Contenido |
 | --- | --- |
 | `src/main.c` | Menú, lectura de datos y listados. Es la única parte que interactúa con el usuario |
-| `src/wallet.c`, `include/wallet.h` | Tipos `Operation` y `User`, TAD `OperationList` (historial) y TAD `Wallet` (AVL de usuarios) |
-| `src/date.c`, `include/date.h` | Tipo `Date`: validación, comparación y fecha de hoy |
+| `src/wallet.c`, `include/wallet.h` | TAD `Wallet`: registro de usuarios y reglas de depósito, retiro y baja. Asigna los ids |
+| `src/user_tree.c`, `include/user_tree.h` | TAD `UserTree`: AVL de usuarios indexado por id |
+| `src/user.c`, `include/user.h` | TAD `User`: id, nombre, saldo e historial |
+| `src/operation_list.c`, `include/operation_list.h` | TAD `OperationList`: historial de operaciones (arreglo dinámico) |
+| `src/operation.c`, `include/operation.h` | TAD `Operation`: un depósito o retiro registrado |
+| `src/date.c`, `include/date.h` | TAD `Date`: validación, comparación y fecha de hoy |
 
-Dependencias: `main.c` usa `wallet.h`, y `wallet.h` usa `date.h`. La lógica (`wallet`, `date`) no hace ninguna entrada ni salida; todo lo que se lee o imprime está en `main.c`.
+Cada TAD tiene su par `.h`/`.c` y un único `struct`, que se declara solo en el `.c`. Dependencias, de arriba hacia abajo: `main` → `wallet` → `user_tree` → `user` → `operation_list` → `operation` → `date`. La lógica no hace ninguna entrada ni salida; todo lo que se lee o imprime está en `main.c`.
 
 ## Estructuras de datos
 
 - **Usuarios:** árbol AVL ordenado por id. Búsqueda, alta y baja en O(log n) en el peor caso; el recorrido in-order entrega los usuarios ordenados por id.
-- **Historial de operaciones:** arreglo dinámico por usuario. Agregar al final en O(1) amortizado y acceso por posición en O(1).
+- **Historial de operaciones:** arreglo dinámico de punteros a `Operation` por usuario. Agregar al final en O(1) amortizado y acceso por posición en O(1).
 - **Montos:** en centavos, como `long long`.
 
 ## Decisiones de diseño
@@ -62,7 +66,8 @@ Dependencias: `main.c` usa `wallet.h`, y `wallet.h` usa `date.h`. La lógica (`w
 - **Los ids no se reutilizan.** `next_user_id` solo crece, aunque se elimine un usuario, así un id nunca apunta a dos personas distintas en momentos distintos. El contador de ids de operaciones (`next_operation_id`) es global a la billetera por la misma razón.
 - **Se guarda la altura, no el factor de balance.** Cada nodo almacena solo `height`; el balance (`altura izq - altura der`) se calcula cuando hace falta. Guardar ambos obligaba a mantenerlos sincronizados en cada rotación.
 - **Un único `rebalance` para alta y baja.** Después de insertar o eliminar, la recursión vuelve hacia la raíz llamando a `rebalance` en cada nodo del camino. Los casos izquierda-derecha y derecha-izquierda se detectan comparando las alturas de los nietos con `<` y `>` estrictos; con alturas iguales (situación que solo ocurre al eliminar) corresponde una rotación simple, y la comparación estricta la elige correctamente.
-- **Baja con dos hijos.** `remove_min` desconecta el sucesor in-order (el menor del subárbol derecho) y el sucesor ocupa el lugar del nodo eliminado **reenlazando punteros**, en lugar de copiar el `User` al nodo a borrar. Así el nodo eliminado se devuelve intacto en `*removed` y `wallet_remove` libera su historial sin copiar estructuras.
+- **Baja con dos hijos.** `remove_min` desconecta el sucesor in-order (el menor del subárbol derecho) y el sucesor ocupa el lugar del nodo eliminado **reenlazando punteros**, en lugar de copiar el usuario al nodo a borrar. `user_tree_remove` libera el nodo y devuelve el `User` intacto en `*removed`, para que `wallet_remove` lo destruya junto con su historial.
+- **El árbol es su propio nodo.** `UserTree` es a la vez el nodo y el subárbol que cuelga de él (el árbol vacío es `NULL`), así el TAD tiene un único `struct` y no hace falta un tipo `Node` aparte.
 - **Recursión.** Las operaciones del árbol son recursivas porque el AVL garantiza profundidad O(log n): no hay riesgo de desbordar la pila y el código queda mucho más corto que con versiones iterativas.
 
 ### Historial de operaciones
@@ -72,24 +77,27 @@ Dependencias: `main.c` usa `wallet.h`, y `wallet.h` usa `date.h`. La lógica (`w
 
 ### Montos y saldos
 
-- **Centavos en `long long`.** Todo el modelo (`Operation.amount`, `User.balance`) usa enteros en centavos: `float`/`double` acumulan errores de redondeo en sumas y restas repetidas, y comparar saldos sería poco fiable. `long long` evita desbordes con montos grandes.
+- **Centavos en `long long`.** Todo el modelo (el monto de `Operation`, el saldo de `User`) usa enteros en centavos: `float`/`double` acumulan errores de redondeo en sumas y restas repetidas, y comparar saldos sería poco fiable. `long long` evita desbordes con montos grandes.
 - **La conversión a centavos ocurre solo en la entrada.** `read_amount` lee un `double` y lo pasa a centavos con `(long long)(value * 100)`; a partir de ahí no vuelven a aparecer números de coma flotante. Esa conversión **trunca** y puede perder un centavo con algunos decimales (por ejemplo `0.29` se guarda como 28 centavos, porque `0.29 * 100` da `28.999...`). Es una limitación aceptada del parseo con `scanf("%lf")`.
 
 ### Lógica separada de la interfaz
 
-- **Tipos opacos.** `Wallet` y `OperationList` se declaran en el header sin su definición; solo `wallet.c` conoce sus campos. Quien use el TAD no puede dejar el árbol o el arreglo en un estado inconsistente.
-- **Solo lectura hacia afuera.** `wallet_find` y `operation_list_get` devuelven `const`, de modo que la interfaz puede consultar un usuario o una operación pero no modificar saldos saltándose las validaciones.
+- **Ningún `struct` en los headers.** Los seis TAD (`Date`, `Operation`, `OperationList`, `User`, `UserTree`, `Wallet`) son tipos opacos: el header solo tiene `typedef struct X X;` y las funciones; los campos viven en el `.c`. Quien use un TAD solo accede a través de sus funciones (`user_balance`, `operation_date`, …) y no puede dejarlo en un estado inconsistente.
+- **Un objeto por TAD.** Cada módulo define un único `struct`. Por eso la billetera quedó separada de las operaciones: `Wallet` solo conoce usuarios y reglas, `User` solo su historial y saldo, y `OperationList` y `Operation` no saben nada de billeteras.
+- **Quién es dueño de qué.** Cada contenedor libera lo que guarda: `Wallet` → `UserTree` → `User` → `OperationList` → `Operation` → `Date`. `operation_create` guarda su propia copia de la fecha, así que quien le pasa una `Date` sigue siendo dueño de la suya (`main.c` la libera con `date_destroy`).
+- **Solo lectura hacia afuera.** `wallet_find`, `user_operations`, `operation_list_get` y `operation_date` devuelven `const`, de modo que la interfaz puede consultar pero no modificar saldos saltándose las validaciones.
 - **El TAD devuelve `Result`, no imprime.** `wallet.c` no hace `printf`: devuelve un código (`RESULT_NOT_FOUND`, `RESULT_INSUFFICIENT_FUNDS`, …) y `main.c` decide el mensaje (`show_result`).
-- **Recorrido con callback.** `wallet_for_each(wallet, action, data)` aplica una función a cada usuario en orden de id. Así los listados y filtros viven en `main.c` sin exponer los nodos del árbol ni copiar usuarios a un arreglo auxiliar. El `void *data` lleva el contexto (por ejemplo, el `Filter` con el criterio, el monto, el período y el contador de coincidencias).
+- **Recorrido con arreglo.** `wallet_users(wallet)` devuelve un arreglo nuevo de `const User *` en orden de id (un recorrido in-order, O(n)), que el llamador libera con `free`. Los listados y filtros viven en `main.c` como `for` comunes, sin exponer los nodos del árbol y sin punteros a función ni `void *`. El costo es una copia de punteros por listado (no de usuarios), y los usuarios siguen siendo de la billetera.
 
 ### Movimientos
 
-- **Un único paso para registrar y actualizar.** `record_movement` valida y, solo si todo es correcto, agrega la operación **y** actualiza el saldo. No existe un estado intermedio donde historial y saldo no coincidan. Depósito y retiro son envoltorios de la misma función porque solo difieren en el signo y en la verificación de saldo.
-- **Orden de las validaciones.** Se verifica monto positivo, fecha válida, existencia del usuario y, en retiros, saldo suficiente, de modo que el mensaje corresponde al primer error real.
+- **Un único paso para registrar y actualizar.** `wallet.c` valida y, solo si todo es correcto, llama a `user_record`, que agrega la operación **y** actualiza el saldo. No existe un estado intermedio donde historial y saldo no coincidan. Depósito y retiro son envoltorios de la misma función porque solo difieren en el signo y en la verificación de saldo.
+- **Orden de las validaciones.** Se verifica monto positivo, existencia del usuario y, en retiros, saldo suficiente, de modo que el mensaje corresponde al primer error real. La fecha ya no se valida acá: una `Date` solo se puede crear si es válida (`date_create` devuelve `NULL` si no), por lo que `RESULT_INVALID_DATE` dejó de existir.
 - **Eliminar solo con saldo cero.** Evita que desaparezca dinero de la billetera sin un retiro registrado. Al eliminar un usuario se destruye también su historial.
 
 ### Fechas
 
+- **Siempre válida.** `date_create` rechaza las fechas inexistentes, así que toda `Date` que circula por el programa es válida y los demás módulos no necesitan revalidarla.
 - **Rango 1900-2100 y calendario gregoriano.** `days_in_month` considera los años bisiestos (divisibles por 4, salvo los múltiplos de 100 que no lo son de 400). El rango acotado es suficiente para el dominio y permite rechazar fechas absurdas.
 - **Comparación con clave `aaaammdd`.** `key` convierte la fecha en `año*10000 + mes*100 + día`, que conserva el orden cronológico: comparar fechas es comparar dos enteros, más simple y menos propenso a errores que comparar año, luego mes y luego día.
 - **No se valida que la fecha no sea futura.** Se permite cargar movimientos con cualquier fecha válida del rango.
@@ -104,7 +112,7 @@ Dependencias: `main.c` usa `wallet.h`, y `wallet.h` usa `date.h`. La lógica (`w
 
 - Cada función tiene una única salida (`return` al final, con una variable `result` cuando hace falta) y no se usan operadores ternarios.
 - Las comparaciones con punteros son explícitas (`!= NULL`, `== NULL`).
-- Los comentarios de cada función están en un prototipo al inicio del archivo; los de los headers públicos describen el contrato.
+- Los comentarios de cada función están en un prototipo al inicio del archivo; los de los headers públicos describen el contrato. Las funciones auxiliares internas de cada módulo son `static`.
 
 ## Limitaciones conocidas
 
